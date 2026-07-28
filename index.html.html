@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>線上圍棋練習室</title>
+    <!-- 引入 PeerJS 提供點對點即時連線 -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        * { box-sizing: border-box; font-family: sans-serif; }
+        body { display: flex; flex-direction: column; align-items: center; background: #f4f4f9; padding: 20px; margin: 0; }
+        h1 { color: #333; margin-bottom: 10px; }
+        .control-panel { background: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        input, button, select { padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background: #4a90e2; color: white; border: none; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #357abd; }
+        .status { font-weight: bold; font-size: 16px; margin: 10px 0; color: #444; }
+        
+        /* 棋盤樣式 */
+        .board-container { background: #e0a96d; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); position: relative; }
+        svg { display: block; cursor: pointer; }
+        .star-point { fill: #000; }
+        .board-line { stroke: #000; stroke-width: 1.5; }
+        .stone { transition: all 0.1s ease; }
+        .stone-black { fill: url(#black-grad); filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.4)); }
+        .stone-white { fill: url(#white-grad); filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.3)); }
+        .last-move-marker { stroke: #e74c3c; stroke-width: 2.5; fill: none; }
+    </style>
+</head>
+<body>
+
+    <h1>圍棋對戰練習室</h1>
+
+    <div class="control-panel">
+        <div>
+            <label>你的房號 ID：</label>
+            <span id="my-id" style="font-weight:bold; color:#d9534f;">連線中...</span>
+        </div>
+        <div>
+            <input type="text" id="join-id" placeholder="輸入對手的房號">
+            <button onclick="connectToPeer()">加入房間</button>
+        </div>
+        <div>
+            <button onclick="passTurn()">Pass (停一手)</button>
+            <button onclick="resetGame()" style="background:#d9534f;">重開一局</button>
+        </div>
+    </div>
+
+    <div class="status" id="status-text">目前狀態：請分享房號給學生，或輸入對手房號連線</div>
+
+    <div class="board-container">
+        <svg id="go-board" width="570" height="570">
+            <defs>
+                <!-- 棋子立體漸層效果 -->
+                <radialGradient id="black-grad" cx="30%" cy="30%" r="70%">
+                    <stop offset="0%" stop-color="#666" />
+                    <stop offset="100%" stop-color="#000" />
+                </radialGradient>
+                <radialGradient id="white-grad" cx="30%" cy="30%" r="70%">
+                    <stop offset="0%" stop-color="#fff" />
+                    <stop offset="100%" stop-color="#ccc" />
+                </radialGradient>
+            </defs>
+            <g id="grid-lines"></g>
+            <g id="star-points"></g>
+            <g id="stones-layer"></g>
+        </svg>
+    </div>
+
+<script>
+    const BOARD_SIZE = 19;
+    const PADDING = 30;
+    const CELL_SIZE = 30; // 30px per cell
+    
+    let board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)); // 0:空, 1:黑, 2:白
+    let currentTurn = 1; // 1:黑, 2:白
+    let myColor = null;  // 本地玩家顏色
+    let lastMove = null;
+    let koPos = null;    // 劫爭位置
+    let peer = null;
+    let conn = null;
+
+    // --- 初始化 PeerJS 免費實時通訊 ---
+    function initPeer() {
+        // 隨機生成 4 位數簡單房號
+        const randomId = Math.floor(1000 + Math.random() * 9000).toString();
+        peer = new Peer(randomId);
+
+        peer.on('open', (id) => {
+            document.getElementById('my-id').innerText = id;
+        });
+
+        // 接收來自對手的連線 (被動方 = 黑棋 / 房主)
+        peer.on('connection', (c) => {
+            conn = c;
+            myColor = 1; // 建立房間者預設執黑
+            setupConnection();
+            document.getElementById('status-text').innerText = "對手已加入！你執【黑棋】，請落子。";
+        });
+    }
+
+    function connectToPeer() {
+        const targetId = document.getElementById('join-id').value.trim();
+        if (!targetId) return alert("請輸入對手房號！");
+        
+        conn = peer.connect(targetId);
+        myColor = 2; // 加入連線者預設執白
+        setupConnection();
+        document.getElementById('status-text').innerText = "成功加入對局！你執【白棋】，等待黑棋落子...";
+    }
+
+    function setupConnection() {
+        conn.on('data', (data) => {
+            if (data.type === 'move') {
+                applyMove(data.x, data.y, data.color, false);
+            } else if (data.type === 'pass') {
+                currentTurn = currentTurn === 1 ? 2 : 1;
+                updateStatus(`對手選擇了 Pass！輪到 ${currentTurn === myColor ? '你' : '對手'} 落子。`);
+            } else if (data.type === 'reset') {
+                initBoardState();
+                updateStatus("對局已重置。");
+            }
+        });
+    }
+
+    // --- 繪製 19x19 SVG 棋盤 ---
+    function drawBoardUI() {
+        const linesGroup = document.getElementById('grid-lines');
+        const starsGroup = document.getElementById('star-points');
+        linesGroup.innerHTML = '';
+        starsGroup.innerHTML = '';
+
+        // 畫網格
+        for (let i = 0; i < BOARD_SIZE; i++) {
+            const pos = PADDING + i * CELL_SIZE;
+            // 橫線
+            linesGroup.appendChild(createSvgElement('line', { x1: PADDING, y1: pos, x2: PADDING + (BOARD_SIZE - 1) * CELL_SIZE, y2: pos, class: 'board-line' }));
+            // 直線
+            linesGroup.appendChild(createSvgElement('line', { x1: pos, y1: PADDING, x2: pos, y2: PADDING + (BOARD_SIZE - 1) * CELL_SIZE, class: 'board-line' }));
+        }
+
+        // 星位 (19x19 的星位座標)
+        const stars = [3, 9, 15];
+        stars.forEach(x => {
+            stars.forEach(y => {
+                const cx = PADDING + x * CELL_SIZE;
+                const cy = PADDING + y * CELL_SIZE;
+                starsGroup.appendChild(createSvgElement('circle', { cx, cy, r: 3.5, class: 'star-point' }));
+            });
+        });
+
+        // 綁定點擊事件
+        document.getElementById('go-board').onclick = handleBoardClick;
+    }
+
+    function createSvgElement(tag, attrs) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (let key in attrs) el.setAttribute(key, attrs[key]);
+        return el;
+    }
+
+    // --- 棋盤點擊處理 ---
+    function handleBoardClick(e) {
+        if (!myColor) return alert("請先建立或加入對局房間！");
+        if (currentTurn !== myColor) return alert("還沒輪到你落子喔！");
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = Math.round((e.clientX - rect.left - PADDING) / CELL_SIZE);
+        const y = Math.round((e.clientY - rect.top - PADDING) / CELL_SIZE);
+
+        if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE) {
+            if (isValidMove(x, y, myColor)) {
+                applyMove(x, y, myColor, true);
+            }
+        }
+    }
+
+    // --- 圍棋核心邏輯判斷（氣、提子、劫爭） ---
+    function isValidMove(x, y, color) {
+        if (board[x][y] !== 0) return false; // 已有棋子
+        if (koPos && koPos.x === x && koPos.y === y) {
+            alert("打劫中！不能立即回提。");
+            return false;
+        }
+
+        // 模擬落子
+        board[x][y] = color;
+        const opponent = color === 1 ? 2 : 1;
+        let captured = getCapturedStones(x, y, opponent);
+
+        // 如果沒有吃掉對方棋子，且自己落子後無氣，則為自殺步 (無效)
+        if (captured.length === 0 && getGroupLiberties(x, y).size === 0) {
+            board[x][y] = 0; // 還原
+            alert("不能下在無氣的地方（自殺步）！");
+            return false;
+        }
+
+        board[x][y] = 0; // 還原
+        return true;
+    }
+
+    function applyMove(x, y, color, isLocal) {
+        board[x][y] = color;
+        const opponent = color === 1 ? 2 : 1;
+        let captured = getCapturedStones(x, y, opponent);
+
+        // 執行提子
+        captured.forEach(p => board[p.x][p.y] = 0);
+
+        // 判斷是否形成「劫爭 (Ko)」
+        if (captured.length === 1 && getGroup(x, y).length === 1 && getGroupLiberties(x, y).size === 1) {
+            koPos = captured[0];
+        } else {
+            koPos = null;
+        }
+
+        lastMove = { x, y };
+        currentTurn = opponent;
+
+        renderStones();
+        updateStatus(`上一手落在 (${x + 1}, ${y + 1})。現在輪到 ${currentTurn === myColor ? '你' : '對手'} 落子。`);
+
+        if (isLocal && conn) {
+            conn.send({ type: 'move', x, y, color });
+        }
+    }
+
+    // --- 計算區塊與氣 ---
+    function getGroup(x, y) {
+        const color = board[x][y];
+        if (color === 0) return [];
+        const group = [];
+        const visited = Array(BOARD_SIZE).fill(false).map(() => Array(BOARD_SIZE).fill(false));
+        const queue = [{x, y}];
+        visited[x][y] = true;
+
+        while (queue.length > 0) {
+            const curr = queue.pop();
+            group.push(curr);
+            const neighbors = getNeighbors(curr.x, curr.y);
+            for (let n of neighbors) {
+                if (!visited[n.x][n.y] && board[n.x][n.y] === color) {
+                    visited[n.x][n.y] = true;
+                    queue.push(n);
+                }
+            }
+        }
+        return group;
+    }
+
+    function getGroupLiberties(x, y) {
+        const group = getGroup(x, y);
+        const liberties = new Set();
+        group.forEach(p => {
+            getNeighbors(p.x, p.y).forEach(n => {
+                if (board[n.x][n.y] === 0) liberties.add(`${n.x},${n.y}`);
+            });
+        });
+        return liberties;
+    }
+
+    function getCapturedStones(x, y, opponentColor) {
+        let captured = [];
+        getNeighbors(x, y).forEach(n => {
+            if (board[n.x][n.y] === opponentColor) {
+                if (getGroupLiberties(n.x, n.y).size === 0) {
+                    captured = captured.concat(getGroup(n.x, n.y));
+                }
+            }
+        });
+        return captured;
+    }
+
+    function getNeighbors(x, y) {
+        const neighbors = [];
+        if (x > 0) neighbors.push({x: x - 1, y});
+        if (x < BOARD_SIZE - 1) neighbors.push({x: x + 1, y});
+        if (y > 0) neighbors.push({x, y: y - 1});
+        if (y < BOARD_SIZE - 1) neighbors.push({x, y: y + 1});
+        return neighbors;
+    }
+
+    // --- 畫面渲染 ---
+    function renderStones() {
+        const layer = document.getElementById('stones-layer');
+        layer.innerHTML = '';
+
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                if (board[x][y] !== 0) {
+                    const cx = PADDING + x * CELL_SIZE;
+                    const cy = PADDING + y * CELL_SIZE;
+                    const colorClass = board[x][y] === 1 ? 'stone-black' : 'stone-white';
+                    
+                    const stone = createSvgElement('circle', {
+                        cx, cy, r: CELL_SIZE * 0.45,
+                        class: `stone ${colorClass}`
+                    });
+                    layer.appendChild(stone);
+
+                    // 標記最後一手
+                    if (lastMove && lastMove.x === x && lastMove.y === y) {
+                        const marker = createSvgElement('circle', {
+                            cx, cy, r: CELL_SIZE * 0.2,
+                            class: 'last-move-marker'
+                        });
+                        layer.appendChild(marker);
+                    }
+                }
+            }
+        }
+    }
+
+    function passTurn() {
+        if (!myColor || currentTurn !== myColor) return;
+        currentTurn = currentTurn === 1 ? 2 : 1;
+        if (conn) conn.send({ type: 'pass' });
+        updateStatus(`你選擇了 Pass。輪到對手落子。`);
+    }
+
+    function resetGame() {
+        if (!confirm("確定要重開一局嗎？")) return;
+        initBoardState();
+        if (conn) conn.send({ type: 'reset' });
+        updateStatus("棋盤已重置。");
+    }
+
+    function initBoardState() {
+        board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
+        currentTurn = 1;
+        lastMove = null;
+        koPos = null;
+        renderStones();
+    }
+
+    function updateStatus(text) {
+        document.getElementById('status-text').innerText = text;
+    }
+
+    // 初始化啟動
+    drawBoardUI();
+    initPeer();
+</script>
+</body>
+</html>
