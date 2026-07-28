@@ -4,61 +4,68 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>線上圍棋練習室</title>
-    <!-- 引入 PeerJS 提供點對點即時連線 -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        * { box-sizing: border-box; font-family: sans-serif; }
-        body { display: flex; flex-direction: column; align-items: center; background: #f4f4f9; padding: 20px; margin: 0; }
-        h1 { color: #333; margin-bottom: 10px; }
-        .control-panel { background: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
-        input, button, select { padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
-        button { background: #4a90e2; color: white; border: none; cursor: pointer; transition: 0.2s; }
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { display: flex; flex-direction: column; align-items: center; background: #262626; color: #eee; padding: 20px; margin: 0; min-height: 100vh; }
+        h1 { margin-bottom: 10px; color: #fff; }
+        .control-panel { background: #333; padding: 15px 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        input, button { padding: 8px 12px; font-size: 14px; border: 1px solid #555; border-radius: 4px; background: #444; color: #fff; }
+        input { background: #222; }
+        button { background: #4a90e2; cursor: pointer; border: none; font-weight: bold; transition: 0.2s; }
         button:hover { background: #357abd; }
-        .status { font-weight: bold; font-size: 16px; margin: 10px 0; color: #444; }
+        .btn-danger { background: #d9534f; }
+        .btn-danger:hover { background: #c9302c; }
+        .status { font-weight: bold; font-size: 16px; margin: 10px 0; color: #4db8ff; text-align: center; }
         
-        /* 棋盤樣式 */
-        .board-container { background: #e0a96d; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); position: relative; }
+        /* OGS 風格棋盤 */
+        .board-container { background: #dcab6b; padding: 15px; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); }
         svg { display: block; cursor: pointer; }
-        .star-point { fill: #000; }
-        .board-line { stroke: #000; stroke-width: 1.5; }
-        .stone { transition: all 0.1s ease; }
-        .stone-black { fill: url(#black-grad); filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.4)); }
-        .stone-white { fill: url(#white-grad); filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.3)); }
-        .last-move-marker { stroke: #e74c3c; stroke-width: 2.5; fill: none; }
+        .star-point { fill: #222; }
+        .board-line { stroke: #222; stroke-width: 1.2; }
+        .stone-black { fill: url(#black-grad); filter: drop-shadow(2px 3px 4px rgba(0,0,0,0.6)); }
+        .stone-white { fill: url(#white-grad); filter: drop-shadow(2px 3px 4px rgba(0,0,0,0.4)); }
+        .last-move-marker { stroke: #e74c3c; stroke-width: 3; fill: none; }
+        
+        /* 結算彈窗 */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); justify-content: center; align-items: center; }
+        .modal-content { background: #333; padding: 25px; border-radius: 8px; text-align: center; max-width: 400px; width: 90%; }
+        .modal-content h2 { margin-top: 0; color: #4db8ff; }
+        .score-board { text-align: left; background: #222; padding: 15px; border-radius: 6px; margin: 15px 0; font-size: 15px; line-height: 1.6; }
     </style>
 </head>
 <body>
 
-    <h1>圍棋對戰練習室</h1>
+    <h1>線上圍棋練習室</h1>
 
     <div class="control-panel">
         <div>
-            <label>你的房號 ID：</label>
-            <span id="my-id" style="font-weight:bold; color:#d9534f;">連線中...</span>
+            <label>你的房號：</label>
+            <span id="my-id" style="font-weight:bold; color:#ffb84d;">連線中...</span>
         </div>
         <div>
-            <input type="text" id="join-id" placeholder="輸入對手的房號">
+            <input type="text" id="join-id" placeholder="輸入對手房號">
             <button onclick="connectToPeer()">加入房間</button>
         </div>
         <div>
-            <button onclick="passTurn()">Pass (停一手)</button>
-            <button onclick="resetGame()" style="background:#d9534f;">重開一局</button>
+            <button onclick="passTurn()">Pass (虛手)</button>
+            <button onclick="resetGame()" class="btn-danger">重開一局</button>
         </div>
     </div>
 
-    <div class="status" id="status-text">目前狀態：請分享房號給學生，或輸入對手房號連線</div>
+    <div class="status" id="status-text">請建立或輸入對手房號開始對局</div>
 
     <div class="board-container">
-        <svg id="go-board" width="570" height="570">
+        <!-- 加大 viewBox 與 width/height 防止邊界棋子破圖 -->
+        <svg id="go-board" width="600" height="600" viewBox="0 0 600 600">
             <defs>
-                <!-- 棋子立體漸層效果 -->
                 <radialGradient id="black-grad" cx="30%" cy="30%" r="70%">
-                    <stop offset="0%" stop-color="#666" />
+                    <stop offset="0%" stop-color="#555" />
                     <stop offset="100%" stop-color="#000" />
                 </radialGradient>
                 <radialGradient id="white-grad" cx="30%" cy="30%" r="70%">
-                    <stop offset="0%" stop-color="#fff" />
-                    <stop offset="100%" stop-color="#ccc" />
+                    <stop offset="0%" stop-color="#ffffff" />
+                    <stop offset="100%" stop-color="#d6d6d6" />
                 </radialGradient>
             </defs>
             <g id="grid-lines"></g>
@@ -67,22 +74,30 @@
         </svg>
     </div>
 
+    <!-- 終局比分彈窗 -->
+    <div id="result-modal" class="modal">
+        <div class="modal-content">
+            <h2>對局結束 - 自動結算</h2>
+            <div id="score-details" class="score-board"></div>
+            <button onclick="closeModal()">關閉面板</button>
+        </div>
+    </div>
+
 <script>
     const BOARD_SIZE = 19;
-    const PADDING = 30;
-    const CELL_SIZE = 30; // 30px per cell
+    const PADDING = 30;     // 留足邊界 padding
+    const CELL_SIZE = 30;    // 30px 間距
+    const KOMI = 6.5;       // 黑貼 6.5 目
     
     let board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)); // 0:空, 1:黑, 2:白
-    let currentTurn = 1; // 1:黑, 2:白
-    let myColor = null;  // 本地玩家顏色
+    let currentTurn = 1; 
+    let myColor = null;  
     let lastMove = null;
-    let koPos = null;    // 劫爭位置
-    let peer = null;
-    let conn = null;
+    let koPos = null;    
+    let passCount = 0;   // 記錄連續 Pass 次數
+    let peer = null, conn = null;
 
-    // --- 初始化 PeerJS 免費實時通訊 ---
     function initPeer() {
-        // 隨機生成 4 位數簡單房號
         const randomId = Math.floor(1000 + Math.random() * 9000).toString();
         peer = new Peer(randomId);
 
@@ -90,12 +105,11 @@
             document.getElementById('my-id').innerText = id;
         });
 
-        // 接收來自對手的連線 (被動方 = 黑棋 / 房主)
         peer.on('connection', (c) => {
             conn = c;
-            myColor = 1; // 建立房間者預設執黑
+            myColor = 1; // 房主執黑
             setupConnection();
-            document.getElementById('status-text').innerText = "對手已加入！你執【黑棋】，請落子。";
+            updateStatus("對手已加入！你執【黑棋】，請落子。");
         });
     }
 
@@ -104,18 +118,18 @@
         if (!targetId) return alert("請輸入對手房號！");
         
         conn = peer.connect(targetId);
-        myColor = 2; // 加入連線者預設執白
+        myColor = 2; // 加入者執白
         setupConnection();
-        document.getElementById('status-text').innerText = "成功加入對局！你執【白棋】，等待黑棋落子...";
+        updateStatus("成功加入！你執【白棋】，等待黑棋落子...");
     }
 
     function setupConnection() {
         conn.on('data', (data) => {
             if (data.type === 'move') {
+                passCount = 0;
                 applyMove(data.x, data.y, data.color, false);
             } else if (data.type === 'pass') {
-                currentTurn = currentTurn === 1 ? 2 : 1;
-                updateStatus(`對手選擇了 Pass！輪到 ${currentTurn === myColor ? '你' : '對手'} 落子。`);
+                handlePass(false);
             } else if (data.type === 'reset') {
                 initBoardState();
                 updateStatus("對局已重置。");
@@ -123,79 +137,75 @@
         });
     }
 
-    // --- 繪製 19x19 SVG 棋盤 ---
     function drawBoardUI() {
         const linesGroup = document.getElementById('grid-lines');
         const starsGroup = document.getElementById('star-points');
         linesGroup.innerHTML = '';
         starsGroup.innerHTML = '';
 
-        // 畫網格
         for (let i = 0; i < BOARD_SIZE; i++) {
             const pos = PADDING + i * CELL_SIZE;
-            // 橫線
-            linesGroup.appendChild(createSvgElement('line', { x1: PADDING, y1: pos, x2: PADDING + (BOARD_SIZE - 1) * CELL_SIZE, y2: pos, class: 'board-line' }));
-            // 直線
-            linesGroup.appendChild(createSvgElement('line', { x1: pos, y1: PADDING, x2: pos, y2: PADDING + (BOARD_SIZE - 1) * CELL_SIZE, class: 'board-line' }));
+            linesGroup.appendChild(createSvg('line', { x1: PADDING, y1: pos, x2: PADDING + (BOARD_SIZE - 1) * CELL_SIZE, y2: pos, class: 'board-line' }));
+            linesGroup.appendChild(createSvg('line', { x1: pos, y1: PADDING, x2: pos, y2: PADDING + (BOARD_SIZE - 1) * CELL_SIZE, class: 'board-line' }));
         }
 
-        // 星位 (19x19 的星位座標)
         const stars = [3, 9, 15];
         stars.forEach(x => {
             stars.forEach(y => {
                 const cx = PADDING + x * CELL_SIZE;
                 const cy = PADDING + y * CELL_SIZE;
-                starsGroup.appendChild(createSvgElement('circle', { cx, cy, r: 3.5, class: 'star-point' }));
+                starsGroup.appendChild(createSvg('circle', { cx, cy, r: 3.5, class: 'star-point' }));
             });
         });
 
-        // 綁定點擊事件
         document.getElementById('go-board').onclick = handleBoardClick;
     }
 
-    function createSvgElement(tag, attrs) {
+    function createSvg(tag, attrs) {
         const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
         for (let key in attrs) el.setAttribute(key, attrs[key]);
         return el;
     }
 
-    // --- 棋盤點擊處理 ---
     function handleBoardClick(e) {
         if (!myColor) return alert("請先建立或加入對局房間！");
         if (currentTurn !== myColor) return alert("還沒輪到你落子喔！");
 
         const rect = e.currentTarget.getBoundingClientRect();
-        const x = Math.round((e.clientX - rect.left - PADDING) / CELL_SIZE);
-        const y = Math.round((e.clientY - rect.top - PADDING) / CELL_SIZE);
+        // 精確計算棋盤交點座標
+        const scale = 600 / rect.width; // 處理自適應縮放
+        const mouseX = (e.clientX - rect.left) * scale;
+        const mouseY = (e.clientY - rect.top) * scale;
+
+        const x = Math.round((mouseX - PADDING) / CELL_SIZE);
+        const y = Math.round((mouseY - PADDING) / CELL_SIZE);
 
         if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE) {
             if (isValidMove(x, y, myColor)) {
+                passCount = 0; // 有落子就重置 Pass 計數
                 applyMove(x, y, myColor, true);
             }
         }
     }
 
-    // --- 圍棋核心邏輯判斷（氣、提子、劫爭） ---
     function isValidMove(x, y, color) {
-        if (board[x][y] !== 0) return false; // 已有棋子
+        if (board[x][y] !== 0) return false;
         if (koPos && koPos.x === x && koPos.y === y) {
             alert("打劫中！不能立即回提。");
             return false;
         }
 
-        // 模擬落子
         board[x][y] = color;
         const opponent = color === 1 ? 2 : 1;
         let captured = getCapturedStones(x, y, opponent);
 
-        // 如果沒有吃掉對方棋子，且自己落子後無氣，則為自殺步 (無效)
         if (captured.length === 0 && getGroupLiberties(x, y).size === 0) {
-            board[x][y] = 0; // 還原
-            alert("不能下在無氣的地方（自殺步）！");
+            board[x][y] = 0;
+            alert("禁入點（自殺步）！");
             return false;
         }
 
-        board[x][y] = 0; // 還原
+        board[x][y] = 0;
         return true;
     }
 
@@ -204,10 +214,8 @@
         const opponent = color === 1 ? 2 : 1;
         let captured = getCapturedStones(x, y, opponent);
 
-        // 執行提子
         captured.forEach(p => board[p.x][p.y] = 0);
 
-        // 判斷是否形成「劫爭 (Ko)」
         if (captured.length === 1 && getGroup(x, y).length === 1 && getGroupLiberties(x, y).size === 1) {
             koPos = captured[0];
         } else {
@@ -218,14 +226,101 @@
         currentTurn = opponent;
 
         renderStones();
-        updateStatus(`上一手落在 (${x + 1}, ${y + 1})。現在輪到 ${currentTurn === myColor ? '你' : '對手'} 落子。`);
+        updateStatus(`上一手落在 (${x + 1}, ${y + 1})。輪到 ${currentTurn === myColor ? '你' : '對手'} 落子。`);
 
         if (isLocal && conn) {
             conn.send({ type: 'move', x, y, color });
         }
     }
 
-    // --- 計算區塊與氣 ---
+    function passTurn() {
+        if (!myColor || currentTurn !== myColor) return;
+        handlePass(true);
+    }
+
+    function handlePass(isLocal) {
+        passCount++;
+        currentTurn = currentTurn === 1 ? 2 : 1;
+
+        if (isLocal && conn) conn.send({ type: 'pass' });
+
+        if (passCount >= 2) {
+            updateStatus("雙方連續 Pass，對局結束！開始計算地盤...");
+            calculateScore();
+        } else {
+            updateStatus(`${isLocal ? '你' : '對手'} 選擇了 Pass (虛手)。輪到 ${currentTurn === myColor ? '你' : '對手'}。`);
+        }
+    }
+
+    // --- 地盤自動演算法 (Flood Fill) ---
+    function calculateScore() {
+        let blackTerritory = 0;
+        let whiteTerritory = 0;
+        let blackStones = 0;
+        let whiteStones = 0;
+
+        const visited = Array(BOARD_SIZE).fill(false).map(() => Array(BOARD_SIZE).fill(false));
+
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                if (board[x][y] === 1) blackStones++;
+                else if (board[x][y] === 2) whiteStones++;
+                else if (!visited[x][y]) {
+                    // 針對空地進行區域擴散掃描
+                    const { size, owner } = floodFillTerritory(x, y, visited);
+                    if (owner === 1) blackTerritory += size;
+                    if (owner === 2) whiteTerritory += size;
+                }
+            }
+        }
+
+        const blackTotal = blackTerritory; 
+        const whiteTotal = whiteTerritory + KOMI;
+        const winner = blackTotal > whiteTotal ? "黑棋獲勝！" : "白棋獲勝！";
+
+        const details = `
+            <b>【地盤統計】</b><br>
+            • 黑棋領地 (空): ${blackTerritory} 目<br>
+            • 白棋領地 (空): ${whiteTerritory} 目<br>
+            • 白棋貼目: ${KOMI} 目<br><hr>
+            <b>【總分比對】</b><br>
+            • 黑方總分: <b>${blackTotal}</b><br>
+            • 白方總分: <b>${whiteTotal}</b><br><br>
+            <h3 style="color:#ffb84d; margin:0;">🏆 結果：${winner}</h3>
+        `;
+
+        document.getElementById('score-details').innerHTML = details;
+        document.getElementById('result-modal').style.display = 'flex';
+    }
+
+    function floodFillTerritory(startX, startY, visited) {
+        const queue = [{x: startX, y: startY}];
+        visited[startX][startY] = true;
+        let size = 0;
+        let reachesBlack = false;
+        let reachesWhite = false;
+
+        while (queue.length > 0) {
+            const {x, y} = queue.pop();
+            size++;
+
+            getNeighbors(x, y).forEach(n => {
+                if (board[n.x][n.y] === 1) reachesBlack = true;
+                else if (board[n.x][n.y] === 2) reachesWhite = true;
+                else if (!visited[n.x][n.y]) {
+                    visited[n.x][n.y] = true;
+                    queue.push(n);
+                }
+            });
+        }
+
+        let owner = 0; // 雙方共用或公空
+        if (reachesBlack && !reachesWhite) owner = 1;
+        if (reachesWhite && !reachesBlack) owner = 2;
+
+        return { size, owner };
+    }
+
     function getGroup(x, y) {
         const color = board[x][y];
         if (color === 0) return [];
@@ -237,13 +332,12 @@
         while (queue.length > 0) {
             const curr = queue.pop();
             group.push(curr);
-            const neighbors = getNeighbors(curr.x, curr.y);
-            for (let n of neighbors) {
+            getNeighbors(curr.x, curr.y).forEach(n => {
                 if (!visited[n.x][n.y] && board[n.x][n.y] === color) {
                     visited[n.x][n.y] = true;
                     queue.push(n);
                 }
-            }
+            });
         }
         return group;
     }
@@ -280,7 +374,6 @@
         return neighbors;
     }
 
-    // --- 畫面渲染 ---
     function renderStones() {
         const layer = document.getElementById('stones-layer');
         layer.innerHTML = '';
@@ -292,15 +385,14 @@
                     const cy = PADDING + y * CELL_SIZE;
                     const colorClass = board[x][y] === 1 ? 'stone-black' : 'stone-white';
                     
-                    const stone = createSvgElement('circle', {
+                    const stone = createSvg('circle', {
                         cx, cy, r: CELL_SIZE * 0.45,
                         class: `stone ${colorClass}`
                     });
                     layer.appendChild(stone);
 
-                    // 標記最後一手
                     if (lastMove && lastMove.x === x && lastMove.y === y) {
-                        const marker = createSvgElement('circle', {
+                        const marker = createSvg('circle', {
                             cx, cy, r: CELL_SIZE * 0.2,
                             class: 'last-move-marker'
                         });
@@ -309,13 +401,6 @@
                 }
             }
         }
-    }
-
-    function passTurn() {
-        if (!myColor || currentTurn !== myColor) return;
-        currentTurn = currentTurn === 1 ? 2 : 1;
-        if (conn) conn.send({ type: 'pass' });
-        updateStatus(`你選擇了 Pass。輪到對手落子。`);
     }
 
     function resetGame() {
@@ -330,14 +415,19 @@
         currentTurn = 1;
         lastMove = null;
         koPos = null;
+        passCount = 0;
         renderStones();
+        closeModal();
+    }
+
+    function closeModal() {
+        document.getElementById('result-modal').style.display = 'none';
     }
 
     function updateStatus(text) {
         document.getElementById('status-text').innerText = text;
     }
 
-    // 初始化啟動
     drawBoardUI();
     initPeer();
 </script>
